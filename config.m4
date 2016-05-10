@@ -9,7 +9,17 @@ if test "$PHP_SYNC" != "no"; then
   AC_MSG_CHECKING([for sem_open in -pthread -lrt])
 
   SAVED_LIBS="$LIBS"
-  LIBS="$LIBS -pthread -lrt"
+
+  dnl on OS X this does not need to be linked against the rt lib
+  case $build_os in
+    darwin1*.*.*)
+      LIBS="$LIBS -pthread"
+      ;;
+    *)
+      LIBS="$LIBS -pthread -lrt"
+      PHP_ADD_LIBRARY(rt,,SYNC_SHARED_LIBADD)
+      ;;
+  esac
 
   AC_TRY_LINK([
     #include <fcntl.h>
@@ -23,7 +33,6 @@ if test "$PHP_SYNC" != "no"; then
     AC_MSG_ERROR([sem_open() is not available on this platform])
   ])
 
-  PHP_ADD_LIBRARY(rt,,SYNC_SHARED_LIBADD)
   PHP_SUBST(SYNC_SHARED_LIBADD)
 
   dnl # Finish defining the basic extension support.

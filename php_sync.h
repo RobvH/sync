@@ -40,6 +40,12 @@ extern zend_module_entry sync_module_entry;
 #include <limits.h>
 #endif
 
+#ifdef __MACH__
+#include <mach/clock.h>
+#include <mach/mach.h>
+#include <mach/semaphore.h>
+#endif
+
 PHP_MINIT_FUNCTION(sync);
 PHP_MSHUTDOWN_FUNCTION(sync);
 PHP_MINFO_FUNCTION(sync);

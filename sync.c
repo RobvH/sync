@@ -54,6 +54,55 @@ ZEND_GET_MODULE(sync)
 #	define INFINITE   0xFFFFFFFF
 #endif
 
+#ifdef __MACH__
+typedef int clockid_t;
+#define CLOCK_REALTIME 1
+
+int clock_gettime(clockid_t clk_id, struct timespec *ts)
+{
+	clock_serv_t cclock;
+	mach_timespec_t mts;
+	host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
+	clock_get_time(cclock, &mts);
+	mach_port_deallocate(mach_task_self(), cclock);
+	ts->tv_sec = mts.tv_sec;
+	ts->tv_nsec = mts.tv_nsec;
+
+	return 0;
+}
+
+int sem_timedwait(sem_t* sem, const struct timespec *abs_timeout) {
+	int retval = 0;
+	mach_timespec_t mts;
+
+	if (abs_timeout->tv_sec >= 0 || abs_timeout->tv_nsec >= 0) {
+		mts.tv_sec = abs_timeout->tv_sec;
+		mts.tv_nsec = abs_timeout->tv_nsec;
+	} else {
+		// FIX: If we really wait forever, we cannot shut down VERMONT
+		// this is mac os x specific and does not happen on linux
+		// hence, we just add a small timeout instead of blocking
+		// indefinately
+		mts.tv_sec = 1;
+		mts.tv_nsec = 0;
+	}
+	retval = semaphore_timedwait(*sem, mts);
+	switch (retval) {
+	case KERN_SUCCESS:
+		return 0;
+	case KERN_OPERATION_TIMED_OUT:
+		errno = ETIMEDOUT;
+		break;
+	case KERN_ABORTED:
+		errno = EINTR;
+		break;
+	default:
+		errno =  EINVAL;
+		break;
+	}
+	return -1;
+}
+#endif
 
 /* Define some generic functions used several places. */
 #if defined(PHP_WIN32)
