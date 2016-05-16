@@ -12,7 +12,7 @@
 extern zend_module_entry sync_module_entry;
 #define phpext_sync_ptr &sync_module_entry
 
-#define PHP_SYNC_VERSION   "1.0.1"
+#define PHP_SYNC_VERSION   "1.1.0"
 
 #ifdef PHP_WIN32
 #	define PHP_SYNC_API __declspec(dllexport)
@@ -50,6 +50,11 @@ PHP_MINIT_FUNCTION(sync);
 PHP_MSHUTDOWN_FUNCTION(sync);
 PHP_MINFO_FUNCTION(sync);
 
+typedef struct _sync_Mutex_object sync_Mutex_object;
+typedef struct _sync_Semaphore_object sync_Semaphore_object;
+typedef struct _sync_Event_object sync_Event_object;
+typedef struct _sync_ReaderWriter_object sync_ReaderWriter_object;
+
 #if defined(PHP_WIN32)
 typedef DWORD sync_ThreadIDType;
 #else
@@ -57,9 +62,7 @@ typedef pthread_t sync_ThreadIDType;
 #endif
 
 /* Mutex */
-typedef struct _sync_Mutex_object {
-	zend_object std;
-
+struct _sync_Mutex_object {
 #if defined(PHP_WIN32)
 	CRITICAL_SECTION MxWinCritSection;
 
@@ -73,13 +76,18 @@ typedef struct _sync_Mutex_object {
 
 	volatile sync_ThreadIDType MxOwnerID;
 	volatile unsigned int MxCount;
-} sync_Mutex_object;
 
+	zend_object std;
+};
+
+static inline sync_Mutex_object * php_sync_Mutex_object_fetch_object(zend_object * obj) {
+	return (sync_Mutex_object *)((char *)obj - XtOffsetOf(sync_Mutex_object, std));
+}
+
+#define Z_SYNC_MUTEX_OBJ_P(zv) php_sync_Mutex_object_fetch_object(Z_OBJ_P(zv));
 
 /* Semaphore */
-typedef struct _sync_Semaphore_object {
-	zend_object std;
-
+struct _sync_Semaphore_object {
 #if defined(PHP_WIN32)
 	HANDLE MxWinSemaphore;
 #else
@@ -89,13 +97,18 @@ typedef struct _sync_Semaphore_object {
 
 	int MxAutoUnlock;
 	volatile unsigned int MxCount;
-} sync_Semaphore_object;
 
+	zend_object std;
+};
+
+static inline sync_Semaphore_object * php_sync_Semaphore_object_fetch_object(zend_object * obj) {
+	return (sync_Semaphore_object *)((char *)obj - XtOffsetOf(sync_Semaphore_object, std));
+}
+
+#define Z_SYNC_SEMAPHORE_OBJ_P(zv) php_sync_Semaphore_object_fetch_object(Z_OBJ_P(zv));
 
 /* Event */
-typedef struct _sync_Event_object {
-	zend_object std;
-
+struct _sync_Event_object {
 #if defined(PHP_WIN32)
 	HANDLE MxWinWaitEvent;
 #else
@@ -103,13 +116,19 @@ typedef struct _sync_Event_object {
 	int MxAllocated;
 	int MxManual;
 #endif
-} sync_Event_object;
+
+	zend_object std;
+};
+
+static inline sync_Event_object * php_sync_Event_object_fetch_object(zend_object * obj) {
+	return (sync_Event_object *)((char *)obj - XtOffsetOf(sync_Event_object, std));
+}
+
+#define Z_SYNC_EVENT_OBJ_P(zv) php_sync_Event_object_fetch_object(Z_OBJ_P(zv));
 
 
 /* Reader-Writer */
-typedef struct _sync_ReaderWriter_object {
-	zend_object std;
-
+struct _sync_ReaderWriter_object {
 #if defined(PHP_WIN32)
 	HANDLE MxWinRSemMutex, MxWinRSemaphore, MxWinRWaitEvent, MxWinWWaitMutex;
 #else
@@ -119,8 +138,15 @@ typedef struct _sync_ReaderWriter_object {
 
 	int MxAutoUnlock;
 	volatile unsigned int MxReadLocks, MxWriteLock;
-} sync_ReaderWriter_object;
 
+	zend_object std;
+};
+
+static inline sync_ReaderWriter_object * php_sync_ReaderWriter_object_fetch_object(zend_object * obj) {
+	return (sync_ReaderWriter_object *)((char *)obj - XtOffsetOf(sync_ReaderWriter_object, std));
+}
+
+#define Z_SYNC_READERWRITER_OBJ_P(zv) php_sync_ReaderWriter_object_fetch_object(Z_OBJ_P(zv));
 
 #endif	/* PHP_SYNC_H */
 
