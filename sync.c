@@ -21,11 +21,6 @@
 #endif
 #include "php_sync.h"
 
-/* PHP_FE_END not define in php < 5.3.7 */
-#ifndef PHP_FE_END
-#define PHP_FE_END {NULL, NULL, NULL}
-#endif
-
 /* {{{ sync_module_entry
  */
 zend_module_entry sync_module_entry = {
@@ -33,7 +28,7 @@ zend_module_entry sync_module_entry = {
 	"sync",                     /* extension name */
 	NULL,             			/* function list */
 	PHP_MINIT(sync),            /* process startup */
-	PHP_MSHUTDOWN(sync),        /* process shutdown */
+	NULL,                       /* process shutdown */
 	NULL,                       /* request startup */
 	NULL,                       /* request shutdown */
 	PHP_MINFO(sync),            /* extension info */
@@ -93,7 +88,7 @@ int sem_timedwait(sem_t* sem, const struct timespec *abs_timeout) {
 		errno = EINTR;
 		break;
 	default:
-		errno =  EINVAL;
+		errno = EINVAL;
 		break;
 	}
 	return -1;
@@ -101,7 +96,7 @@ int sem_timedwait(sem_t* sem, const struct timespec *abs_timeout) {
 #endif
 
 /* Define some generic functions used several places. */
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 /* Windows. */
 sync_ThreadIDType sync_GetCurrentThreadID()
@@ -206,16 +201,12 @@ zend_object * sync_Mutex_create_object(zend_class_entry *ce)
 	obj->std.handlers = &sync_Mutex_object_handlers;
 
 	/* Initialize Mutex information. */
-#if defined(PHP_WIN32)
-	obj->MxWinMutex = NULL;
+#ifdef PHP_WIN32
 	InitializeCriticalSection(&obj->MxWinCritSection);
 #else
 	obj->MxSemMutex = SEM_FAILED;
-	obj->MxAllocated = 0;
 	pthread_mutex_init(&obj->MxPthreadCritSection, NULL);
 #endif
-	obj->MxOwnerID = 0;
-	obj->MxCount = 0;
 
 	return &obj->std;
 }
@@ -224,7 +215,7 @@ zend_object * sync_Mutex_create_object(zend_class_entry *ce)
 /* {{{ Unlocks a mutex. */
 int sync_Mutex_unlock_internal(sync_Mutex_object *obj, int all)
 {
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	EnterCriticalSection(&obj->MxWinCritSection);
 
@@ -285,7 +276,7 @@ void sync_Mutex_free_object(zend_object *object)
 
 	sync_Mutex_unlock_internal(obj, 1);
 
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 	if (obj->MxWinMutex != NULL)  CloseHandle(obj->MxWinMutex);
 	DeleteCriticalSection(&obj->MxWinCritSection);
 #else
@@ -308,18 +299,14 @@ PHP_METHOD(sync_Mutex, __construct)
 {
 	char *name = NULL;
 	size_t name_len;
-	sync_Mutex_object *obj;
-#if defined(PHP_WIN32)
+	sync_Mutex_object *obj = Z_SYNC_MUTEX_OBJ_P(getThis());
+#ifdef PHP_WIN32
 	SECURITY_ATTRIBUTES SecAttr;
-#else
-	char *name2;
 #endif
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|s", &name, &name_len) == FAILURE)  return;
 
-	obj = (sync_Mutex_object *)Z_SYNC_MUTEX_OBJ_P(getThis());
-
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	SecAttr.nLength = sizeof(SecAttr);
 	SecAttr.lpSecurityDescriptor = NULL;
@@ -336,9 +323,9 @@ PHP_METHOD(sync_Mutex, __construct)
 
 	if (name != NULL)
 	{
-		name2 = emalloc(name_len + 20);
+		char *name2;
 
-		sprintf(name2, "/Sync_Mutex_%s_0", name);
+		spprintf(&name2, 0, "/Sync_Mutex_%s_0", name);
 		obj->MxSemMutex = sem_open(name2, O_CREAT, 0666, 1);
 
 		efree(name2);
@@ -366,17 +353,14 @@ PHP_METHOD(sync_Mutex, __construct)
 PHP_METHOD(sync_Mutex, lock)
 {
 	zend_long wait = -1;
-	sync_Mutex_object *obj;
-#if defined(PHP_WIN32)
+	sync_Mutex_object *obj = Z_SYNC_MUTEX_OBJ_P(getThis());
+#ifdef PHP_WIN32
 	DWORD Result;
-#else
 #endif
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &wait) == FAILURE)  return;
 
-	obj = (sync_Mutex_object *)Z_SYNC_MUTEX_OBJ_P(getThis());
-
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	EnterCriticalSection(&obj->MxWinCritSection);
 
@@ -438,11 +422,9 @@ PHP_METHOD(sync_Mutex, lock)
 PHP_METHOD(sync_Mutex, unlock)
 {
 	zend_long all = 0;
-	sync_Mutex_object *obj;
+	sync_Mutex_object *obj = Z_SYNC_MUTEX_OBJ_P(getThis());
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &all) == FAILURE)  return;
-
-	obj = (sync_Mutex_object *)Z_SYNC_MUTEX_OBJ_P(getThis());
 
 	if (!sync_Mutex_unlock_internal(obj, all))  RETURN_FALSE;
 
@@ -451,15 +433,15 @@ PHP_METHOD(sync_Mutex, unlock)
 /* }}} */
 
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_mutex___construct, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_mutex___construct, 0, ZEND_RETURN_VALUE, 0)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_mutex_lock, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_mutex_lock, 0, ZEND_RETURN_VALUE, 0)
 	ZEND_ARG_INFO(0, wait)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_mutex_unlock, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_mutex_unlock, 0, ZEND_RETURN_VALUE, 0)
 	ZEND_ARG_INFO(0, all)
 ZEND_END_ARG_INFO()
 
@@ -495,14 +477,9 @@ zend_object * sync_Semaphore_create_object(zend_class_entry *ce)
 	obj->std.handlers = &sync_Semaphore_object_handlers;
 
 	/* Initialize Semaphore information. */
-#if defined(PHP_WIN32)
-	obj->MxWinSemaphore = NULL;
-#else
+#ifndef PHP_WIN32
 	obj->MxSemSemaphore = SEM_FAILED;
-	obj->MxAllocated = 0;
 #endif
-	obj->MxAutoUnlock = 0;
-	obj->MxCount = 0;
 
 	return &obj->std;
 }
@@ -517,7 +494,7 @@ void sync_Semaphore_free_object(zend_object *object)
 	{
 		while (obj->MxCount)
 		{
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 			ReleaseSemaphore(obj->MxWinSemaphore, 1, NULL);
 #else
 			sem_post(obj->MxSemSemaphore);
@@ -527,7 +504,7 @@ void sync_Semaphore_free_object(zend_object *object)
 		}
 	}
 
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 	if (obj->MxWinSemaphore != NULL)  CloseHandle(obj->MxWinSemaphore);
 #else
 	if (obj->MxSemSemaphore != SEM_FAILED)
@@ -549,20 +526,16 @@ PHP_METHOD(sync_Semaphore, __construct)
 	size_t name_len;
 	zend_long initialval = 1;
 	zend_long autounlock = 1;
-	sync_Semaphore_object *obj;
-#if defined(PHP_WIN32)
+	sync_Semaphore_object *obj = Z_SYNC_SEMAPHORE_OBJ_P(getThis());
+#ifdef PHP_WIN32
 	SECURITY_ATTRIBUTES SecAttr;
-#else
-	char *name2;
 #endif
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|sll", &name, &name_len, &initialval, &autounlock) == FAILURE)  return;
 
-	obj = (sync_Semaphore_object *)Z_SYNC_SEMAPHORE_OBJ_P(getThis());
-
 	obj->MxAutoUnlock = (autounlock ? 1 : 0);
 
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	SecAttr.nLength = sizeof(SecAttr);
 	SecAttr.lpSecurityDescriptor = NULL;
@@ -581,9 +554,9 @@ PHP_METHOD(sync_Semaphore, __construct)
 
 	if (name != NULL)
 	{
-		name2 = emalloc(name_len + 20);
+		char *name2;
 
-		sprintf(name2, "/Sync_Semaphore_%s_0", name);
+		spprintf(&name2, 0, "/Sync_Semaphore_%s_0", name);
 		obj->MxSemSemaphore = sem_open(name2, O_CREAT, 0666, (unsigned int)initialval);
 
 		efree(name2);
@@ -611,17 +584,14 @@ PHP_METHOD(sync_Semaphore, __construct)
 PHP_METHOD(sync_Semaphore, lock)
 {
 	zend_long wait = -1;
-	sync_Semaphore_object *obj;
-#if defined(PHP_WIN32)
+	sync_Semaphore_object *obj = Z_SYNC_SEMAPHORE_OBJ_P(getThis());
+#ifdef PHP_WIN32
 	DWORD Result;
-#else
 #endif
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &wait) == FAILURE)  return;
 
-	obj = (sync_Semaphore_object *)Z_SYNC_SEMAPHORE_OBJ_P(getThis());
-
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	Result = WaitForSingleObject(obj->MxWinSemaphore, (DWORD)(wait > -1 ? wait : INFINITE));
 	if (Result != WAIT_OBJECT_0)  RETURN_FALSE;
@@ -643,18 +613,16 @@ PHP_METHOD(sync_Semaphore, lock)
 PHP_METHOD(sync_Semaphore, unlock)
 {
 	zval *zprevcount = NULL;
-	sync_Semaphore_object *obj;
+	sync_Semaphore_object *obj = Z_SYNC_SEMAPHORE_OBJ_P(getThis());
 	int count;
 	int argc = ZEND_NUM_ARGS();
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 	LONG PrevCount;
 #endif
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &zprevcount) == FAILURE)  return;
 
-	obj = (sync_Semaphore_object *)Z_SYNC_SEMAPHORE_OBJ_P(getThis());
-
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	if (!ReleaseSemaphore(obj->MxWinSemaphore, 1, &PrevCount))  RETURN_FALSE;
 	count = (int)PrevCount;
@@ -682,17 +650,17 @@ PHP_METHOD(sync_Semaphore, unlock)
 /* }}} */
 
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_semaphore___construct, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_semaphore___construct, 0, ZEND_RETURN_VALUE, 0)
 	ZEND_ARG_INFO(0, name)
 	ZEND_ARG_INFO(0, initialval)
 	ZEND_ARG_INFO(0, autounlock)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_semaphore_lock, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_semaphore_lock, 0, ZEND_RETURN_VALUE, 0)
 	ZEND_ARG_INFO(0, wait)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_semaphore_unlock, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_semaphore_unlock, 0, ZEND_RETURN_VALUE, 0)
 	ZEND_ARG_INFO(1, prevcount)
 ZEND_END_ARG_INFO()
 
@@ -728,15 +696,11 @@ zend_object * sync_Event_create_object(zend_class_entry *ce)
 	obj->std.handlers = &sync_Event_object_handlers;
 
 	/* Initialize Event information. */
-#if defined(PHP_WIN32)
-	obj->MxWinWaitEvent = NULL;
-#else
+#ifndef PHP_WIN32
 	obj->MxSemWaitMutex = SEM_FAILED;
 	obj->MxSemWaitEvent = SEM_FAILED;
 	obj->MxSemWaitCount = SEM_FAILED;
 	obj->MxSemWaitStatus = SEM_FAILED;
-	obj->MxAllocated = 0;
-	obj->MxManual = 0;
 #endif
 
 	return &obj->std;
@@ -748,7 +712,7 @@ static void sync_Event_free_object(zend_object *object)
 {
 	sync_Event_object *obj = php_sync_Event_object_fetch_object(object);
 
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 	if (obj->MxWinWaitEvent != NULL)  CloseHandle(obj->MxWinWaitEvent);
 #else
 	if (obj->MxAllocated)
@@ -778,18 +742,14 @@ PHP_METHOD(sync_Event, __construct)
 	char *name = NULL;
 	int name_len;
 	zend_long manual = 0;
-	sync_Event_object *obj;
-#if defined(PHP_WIN32)
+	sync_Event_object *obj = Z_SYNC_EVENT_OBJ_P(getThis());
+#ifdef PHP_WIN32
 	SECURITY_ATTRIBUTES SecAttr;
-#else
-	char *name2;
 #endif
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|sl", &name, &name_len, &manual) == FAILURE)  return;
 
-	obj = (sync_Event_object *)Z_SYNC_EVENT_OBJ_P(getThis());
-
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	SecAttr.nLength = sizeof(SecAttr);
 	SecAttr.lpSecurityDescriptor = NULL;
@@ -808,19 +768,21 @@ PHP_METHOD(sync_Event, __construct)
 
 	if (name != NULL)
 	{
-		name2 = emalloc(name_len + 20);
+		char *name2;
+		int name2_len;
 
-		sprintf(name2, "/Sync_Event_%s_0", name);
+		name2_len = spprintf(&name2, 0, "/Sync_Event_%s_0", name);
 		obj->MxSemWaitMutex = sem_open(name2, O_CREAT, 0666, 1);
-		sprintf(name2, "/Sync_Event_%s_1", name);
+        name2[name2_len-1] = '1'; /* "/Sync_Event_%s_1" */
 		obj->MxSemWaitEvent = sem_open(name2, O_CREAT, 0666, 0);
 
 		if (manual)
 		{
 			sprintf(name2, "/Sync_Event_%s_2", name);
+			name2[name2_len-1] = '2'; /* "/Sync_Event_%s_2" */
 			obj->MxSemWaitCount = sem_open(name2, O_CREAT, 0666, 0);
 
-			sprintf(name2, "/Sync_Event_%s_3", name);
+			name2[name2_len-1] = '3'; /* "/Sync_Event_%s_3" */
 			obj->MxSemWaitStatus = sem_open(name2, O_CREAT, 0666, 0);
 		}
 
@@ -861,8 +823,8 @@ PHP_METHOD(sync_Event, __construct)
 PHP_METHOD(sync_Event, wait)
 {
 	zend_long wait = -1;
-	sync_Event_object *obj;
-#if defined(PHP_WIN32)
+	sync_Event_object *obj = Z_SYNC_EVENT_OBJ_P(getThis());
+#ifdef PHP_WIN32
 	DWORD Result;
 #else
 	uint32_t WaitAmt;
@@ -872,9 +834,7 @@ PHP_METHOD(sync_Event, wait)
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &wait) == FAILURE)  return;
 
-	obj = (sync_Event_object *)Z_SYNC_EVENT_OBJ_P(getThis());
-
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	Result = WaitForSingleObject(obj->MxWinWaitEvent, (DWORD)(wait > -1 ? wait : INFINITE));
 	if (Result != WAIT_OBJECT_0)  RETURN_FALSE;
@@ -942,15 +902,12 @@ PHP_METHOD(sync_Event, wait)
    Lets a thread through that is waiting.  Lets multiple threads through that are waiting if the event object is 'manual'. */
 PHP_METHOD(sync_Event, fire)
 {
-	sync_Event_object *obj;
-#if defined(PHP_WIN32)
-#else
+	sync_Event_object *obj = Z_SYNC_EVENT_OBJ_P(getThis());
+#ifndef PHP_WIN32
 	int x, Val;
 #endif
 
-	obj = (sync_Event_object *)Z_SYNC_EVENT_OBJ_P(getThis());
-
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	if (!SetEvent(obj->MxWinWaitEvent))  RETURN_FALSE;
 
@@ -989,19 +946,14 @@ PHP_METHOD(sync_Event, fire)
    Resets the event object state.  Only use when the event object is 'manual'. */
 PHP_METHOD(sync_Event, reset)
 {
-	sync_Event_object *obj;
-#if defined(PHP_WIN32)
-#else
-	int Val;
-#endif
+	sync_Event_object *obj = Z_SYNC_EVENT_OBJ_P(getThis());
 
-	obj = (sync_Event_object *)Z_SYNC_EVENT_OBJ_P(getThis());
-
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	if (!ResetEvent(obj->MxWinWaitEvent))  RETURN_FALSE;
 
 #else
+	int Val;
 
 	if (!obj->MxManual)  RETURN_FALSE;
 
@@ -1073,22 +1025,13 @@ zend_object * sync_ReaderWriter_create_object(zend_class_entry *ce)
 	obj->std.handlers = &sync_ReaderWriter_object_handlers;
 
 	/* Initialize Reader-Writer information. */
-#if defined(PHP_WIN32)
-	obj->MxWinRSemMutex = NULL;
-	obj->MxWinRSemaphore = NULL;
-	obj->MxWinRWaitEvent = NULL;
-	obj->MxWinWWaitMutex = NULL;
-#else
+#ifndef PHP_WIN32
 	obj->MxSemRSemMutex = SEM_FAILED;
 	obj->MxSemRSemaphore = SEM_FAILED;
 	obj->MxSemRWaitEvent = SEM_FAILED;
 	obj->MxSemWWaitMutex = SEM_FAILED;
-	obj->MxAllocated = 0;
 #endif
-
 	obj->MxAutoUnlock = 1;
-	obj->MxReadLocks = 0;
-	obj->MxWriteLock = 0;
 
 	return &obj->std;
 }
@@ -1097,7 +1040,7 @@ zend_object * sync_ReaderWriter_create_object(zend_class_entry *ce)
 /* {{{ Unlocks a read lock. */
 int sync_ReaderWriter_readunlock_internal(sync_ReaderWriter_object *obj)
 {
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	DWORD Result;
 	LONG Val;
@@ -1178,7 +1121,7 @@ int sync_ReaderWriter_readunlock_internal(sync_ReaderWriter_object *obj)
 /* {{{ Unlocks a write lock. */
 int sync_ReaderWriter_writeunlock_internal(sync_ReaderWriter_object *obj)
 {
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	if (obj->MxWinWWaitMutex == NULL)  return 0;
 
@@ -1214,7 +1157,7 @@ void sync_ReaderWriter_free_object(zend_object *object)
 		if (obj->MxWriteLock)  sync_ReaderWriter_writeunlock_internal(obj);
 	}
 
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 	if (obj->MxWinWWaitMutex != NULL)  CloseHandle(obj->MxWinWWaitMutex);
 	if (obj->MxWinRWaitEvent != NULL)  CloseHandle(obj->MxWinRWaitEvent);
 	if (obj->MxWinRSemaphore != NULL)  CloseHandle(obj->MxWinRSemaphore);
@@ -1247,23 +1190,20 @@ PHP_METHOD(sync_ReaderWriter, __construct)
 	char *name = NULL;
 	int name_len;
 	zend_long autounlock = 1;
-	sync_ReaderWriter_object *obj;
+	sync_ReaderWriter_object *obj = Z_SYNC_READERWRITER_OBJ_P(getThis());
 	char *name2;
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 	SECURITY_ATTRIBUTES SecAttr;
-#else
 #endif
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|sl", &name, &name_len, &autounlock) == FAILURE)  return;
-
-	obj = (sync_ReaderWriter_object *)Z_SYNC_READERWRITER_OBJ_P(getThis());
 
 	obj->MxAutoUnlock = (autounlock ? 1 : 0);
 
 	if (name == NULL)  name2 = NULL;
 	else  name2 = emalloc(name_len + 20);
 
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	SecAttr.nLength = sizeof(SecAttr);
 	SecAttr.lpSecurityDescriptor = NULL;
@@ -1313,7 +1253,7 @@ PHP_METHOD(sync_ReaderWriter, __construct)
 
 	if (name2 != NULL)  efree(name2);
 
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	if (obj->MxWinRSemMutex == NULL || obj->MxWinRSemaphore == NULL || obj->MxWinRWaitEvent == NULL || obj->MxWinWWaitMutex == NULL)
 	{
@@ -1338,10 +1278,10 @@ PHP_METHOD(sync_ReaderWriter, __construct)
 PHP_METHOD(sync_ReaderWriter, readlock)
 {
 	zend_long wait = -1;
-	sync_ReaderWriter_object *obj;
+	sync_ReaderWriter_object *obj = Z_SYNC_READERWRITER_OBJ_P(getThis());
 	uint32_t WaitAmt;
 	uint64_t StartTime, CurrTime;
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 	DWORD Result;
 #else
 	int Val;
@@ -1349,14 +1289,12 @@ PHP_METHOD(sync_ReaderWriter, readlock)
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &wait) == FAILURE)  return;
 
-	obj = (sync_ReaderWriter_object *)Z_SYNC_READERWRITER_OBJ_P(getThis());
-
 	WaitAmt = (uint32_t)(wait > -1 ? wait : INFINITE);
 
 	/* Get current time in milliseconds. */
 	StartTime = (WaitAmt == INFINITE ? 0 : sync_GetUnixMicrosecondTime() / 1000000);
 
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	/* Acquire the write lock mutex.  Guarantees that readers can't starve the writer. */
 	Result = WaitForSingleObject(obj->MxWinWWaitMutex, WaitAmt);
@@ -1480,24 +1418,21 @@ PHP_METHOD(sync_ReaderWriter, readlock)
 PHP_METHOD(sync_ReaderWriter, writelock)
 {
 	zend_long wait = -1;
-	sync_ReaderWriter_object *obj;
+	sync_ReaderWriter_object *obj = Z_SYNC_READERWRITER_OBJ_P(getThis());
 	uint32_t WaitAmt;
 	uint64_t StartTime, CurrTime;
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 	DWORD Result;
-#else
 #endif
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &wait) == FAILURE)  return;
-
-	obj = (sync_ReaderWriter_object *)Z_SYNC_READERWRITER_OBJ_P(getThis());
 
 	WaitAmt = (uint32_t)(wait > -1 ? wait : INFINITE);
 
 	/* Get current time in milliseconds. */
 	StartTime = (WaitAmt == INFINITE ? 0 : sync_GetUnixMicrosecondTime() / 1000000);
 
-#if defined(PHP_WIN32)
+#ifdef PHP_WIN32
 
 	/* Acquire the write lock mutex. */
 	Result = WaitForSingleObject(obj->MxWinWWaitMutex, WaitAmt);
@@ -1542,9 +1477,7 @@ PHP_METHOD(sync_ReaderWriter, writelock)
    Read unlocks a reader-writer object. */
 PHP_METHOD(sync_ReaderWriter, readunlock)
 {
-	sync_ReaderWriter_object *obj;
-
-	obj = (sync_ReaderWriter_object *)Z_SYNC_READERWRITER_OBJ_P(getThis());
+	sync_ReaderWriter_object *obj = Z_SYNC_READERWRITER_OBJ_P(getThis());
 
 	if (!sync_ReaderWriter_readunlock_internal(obj))  RETURN_FALSE;
 
@@ -1556,9 +1489,7 @@ PHP_METHOD(sync_ReaderWriter, readunlock)
    Write unlocks a reader-writer object. */
 PHP_METHOD(sync_ReaderWriter, writeunlock)
 {
-	sync_ReaderWriter_object *obj;
-
-	obj = (sync_ReaderWriter_object *)Z_SYNC_READERWRITER_OBJ_P(getThis());
+	sync_ReaderWriter_object *obj = Z_SYNC_READERWRITER_OBJ_P(getThis());
 
 	if (!sync_ReaderWriter_writeunlock_internal(obj))  RETURN_FALSE;
 
@@ -1567,31 +1498,25 @@ PHP_METHOD(sync_ReaderWriter, writeunlock)
 /* }}} */
 
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_readerwriter___construct, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_readerwriter___construct, 0, ZEND_RETURN_VALUE, 0)
 	ZEND_ARG_INFO(0, name)
 	ZEND_ARG_INFO(0, autounlock)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_readerwriter_readlock, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_readerwriter_readlock, 0, ZEND_RETURN_VALUE, 0)
 	ZEND_ARG_INFO(0, wait)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_readerwriter_writelock, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_readerwriter_writelock, 0, ZEND_RETURN_VALUE, 0)
 	ZEND_ARG_INFO(0, wait)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_readerwriter_readunlock, 0, 0, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_sync_readerwriter_writeunlock, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry sync_ReaderWriter_methods[] = {
 	PHP_ME(sync_ReaderWriter, __construct, arginfo_sync_readerwriter___construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
 	PHP_ME(sync_ReaderWriter, readlock, arginfo_sync_readerwriter_readlock, ZEND_ACC_PUBLIC)
 	PHP_ME(sync_ReaderWriter, writelock, arginfo_sync_readerwriter_writelock, ZEND_ACC_PUBLIC)
-	PHP_ME(sync_ReaderWriter, readunlock, arginfo_sync_readerwriter_readunlock, ZEND_ACC_PUBLIC)
-	PHP_ME(sync_ReaderWriter, writeunlock, arginfo_sync_readerwriter_writeunlock, ZEND_ACC_PUBLIC)
+	PHP_ME(sync_ReaderWriter, readunlock, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(sync_ReaderWriter, writeunlock, NULL, ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };
 
@@ -1605,40 +1530,32 @@ PHP_MINIT_FUNCTION(sync)
 
 	INIT_CLASS_ENTRY(ce, "SyncMutex", sync_Mutex_methods);
 	ce.create_object = sync_Mutex_create_object;
-	sync_Mutex_ce = zend_register_internal_class_ex(&ce, NULL);
+	sync_Mutex_ce = zend_register_internal_class(&ce);
 	memcpy(&sync_Mutex_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
 	sync_Mutex_object_handlers.offset = XtOffsetOf(sync_Mutex_object, std);
 	sync_Mutex_object_handlers.free_obj = sync_Mutex_free_object;
 
 	INIT_CLASS_ENTRY(ce, "SyncSemaphore", sync_Semaphore_methods);
 	ce.create_object = sync_Semaphore_create_object;
-	sync_Semaphore_ce = zend_register_internal_class_ex(&ce, NULL);
+	sync_Semaphore_ce = zend_register_internal_class(&ce);
 	memcpy(&sync_Semaphore_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
 	sync_Semaphore_object_handlers.offset = XtOffsetOf(sync_Semaphore_object, std);
 	sync_Semaphore_object_handlers.free_obj = sync_Semaphore_free_object;
 
 	INIT_CLASS_ENTRY(ce, "SyncEvent", sync_Event_methods);
 	ce.create_object = sync_Event_create_object;
-	sync_Event_ce = zend_register_internal_class_ex(&ce, NULL);
+	sync_Event_ce = zend_register_internal_class(&ce);
 	memcpy(&sync_Event_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
 	sync_Event_object_handlers.offset = XtOffsetOf(sync_Event_object, std);
 	sync_Event_object_handlers.free_obj = sync_Event_free_object;
 
 	INIT_CLASS_ENTRY(ce, "SyncReaderWriter", sync_ReaderWriter_methods);
 	ce.create_object = sync_ReaderWriter_create_object;
-	sync_ReaderWriter_ce = zend_register_internal_class_ex(&ce, NULL);
+	sync_ReaderWriter_ce = zend_register_internal_class(&ce);
 	memcpy(&sync_ReaderWriter_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
 	sync_ReaderWriter_object_handlers.offset = XtOffsetOf(sync_ReaderWriter_object, std);
 	sync_ReaderWriter_object_handlers.free_obj = sync_ReaderWriter_free_object;
 
-	return SUCCESS;
-}
-/* }}} */
-
-/* {{{ PHP_MSHUTDOWN_FUNCTION
- */
-PHP_MSHUTDOWN_FUNCTION(sync)
-{
 	return SUCCESS;
 }
 /* }}} */
